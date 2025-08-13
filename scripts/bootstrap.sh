@@ -5,11 +5,11 @@ echo "=== Starting system bootstrap ==="
 
 # Update package lists
 echo "Updating package lists..."
-apt-get update
+apt update
 
 # Install essential packages
 echo "Installing essential packages..."
-apt-get install -y \
+apt install -y \
     curl \
     wget \
     gnupg2 \
@@ -17,39 +17,31 @@ apt-get install -y \
     apt-transport-https \
     ca-certificates \
     lsb-release \
-    unzip \
-    git \
-    vim \
-    htop \
-    tree \
-    jq \
-    rsync \
     net-tools \
     dnsutils \
     bridge-utils \
     iptables \
     ebtables \
-    dnsmasq-base
+    dnsmasq-base \
+    zstd
 
 # Install Python for Ansible compatibility
 echo "Installing Python and pip..."
-apt-get install -y \
+apt install -y \
     python3 \
-    python3-pip \
-    python3-venv \
-    python3-dev
+    python3-pip
 
 # Create symlink for python if it doesn't exist
 if ! command -v python &> /dev/null; then
     ln -s /usr/bin/python3 /usr/local/bin/python
 fi
 
-# Upgrade pip
-python3 -m pip install --upgrade pip
-
 # Install Ansible (useful for the CI environment)
 echo "Installing Ansible..."
-python3 -m pip install ansible ansible-core
+apt install -y ansible
+
+# Install kernel headers
+apt install -y linux-headers-amd64
 
 # Configure kernel modules for containerization
 echo "Configuring kernel modules..."
@@ -58,10 +50,10 @@ modprobe br_netfilter
 modprobe nf_nat
 modprobe ip_tables
 modprobe ip6_tables
-modprobe netfilter_xt_comment
+modprobe netfilter_xt_comment || true
 
 # Make kernel modules persistent
-cat >> /etc/modules-load.d/incus.conf << EOF
+cat > /etc/modules-load.d/incus.conf << EOF
 overlay
 br_netfilter
 nf_nat
@@ -72,7 +64,7 @@ EOF
 
 # Configure sysctl for containerization
 echo "Configuring sysctl parameters..."
-cat >> /etc/sysctl.d/99-incus.conf << EOF
+cat > /etc/sysctl.d/99-incus.conf << EOF
 # Enable IP forwarding
 net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
@@ -88,7 +80,7 @@ fs.aio-max-nr = 1048576
 kernel.dmesg_restrict = 1
 net.ipv4.neigh.default.gc_thresh3 = 8192
 net.ipv6.neigh.default.gc_thresh3 = 8192
-net.core.bpf_jit_limit = 3000000000
+#net.core.bpf_jit_limit = 3000000000
 kernel.keys.maxkeys = 2000
 kernel.keys.maxbytes = 2000000
 vm.max_map_count = 262144
@@ -124,6 +116,6 @@ systemctl daemon-reload
 
 # Disable swap if enabled (recommended for containers)
 swapoff -a
-sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+sed -i 's|/ swap |#&|' /etc/fstab
 
 echo "=== Bootstrap completed successfully ==="
