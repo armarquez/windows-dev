@@ -25,6 +25,15 @@ apt install -y \
     dnsmasq-base \
     zstd
 
+# Install KVM and other virtualization packages
+echo "Installing KVM and other virtualization packages..."
+apt install -y \
+    qemu-kvm \
+    libvirt-daemon-system \
+    libvirt-clients \
+    bridge-utils \
+    virt-manager
+
 # Install Python for Ansible compatibility
 echo "Installing Python and pip..."
 apt install -y \
@@ -103,6 +112,8 @@ echo "vagrant:1000000:1000000000" >> /etc/subgid
 
 # Add vagrant user to necessary groups
 usermod -aG sudo vagrant
+usermod -aG libvirt vagrant
+usermod -aG kvm vagrant
 
 # Configure systemd for containers
 echo "Configuring systemd..."

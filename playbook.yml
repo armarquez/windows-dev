@@ -1,0 +1,112 @@
+---
+- name: Provision Incus Server and Fetch Token
+  hosts: incus_server
+  become: yes
+  vars:
+    # This is the path on the remote server where the token will be generated
+    remote_token_path: /home/{{ ansible_user }}/incus-server-wsl-client.token
+    # This is the path on the local machine (running ansible) where the token will be saved
+    local_token_path: "{{ lookup('env', 'PWD') }}/secrets/incus-server-wsl-client.token"
+
+  pre_tasks:
+    - name: Check prerequisites
+      block:
+        - name: Verify Python is available
+          ansible.builtin.command: python3 --version
+          register: python_version
+          changed_when: false
+
+        - name: Verify sudo access
+          ansible.builtin.command: sudo -n true
+          changed_when: false
+
+        - name: Check available disk space (need at least 10GB)
+          ansible.builtin.shell: df / | awk 'NR==2 {print $4}'
+          register: disk_space
+          changed_when: false
+          failed_when: disk_space.stdout|int < 10485760  # 10GB in KB
+
+        - name: Display system information
+          ansible.builtin.debug:
+            msg: 
+              - "Python version: {{ python_version.stdout }}"
+              - "Available disk space: {{ (disk_space.stdout|int / 1048576) | round(1) }}GB"
+              - "Server: {{ inventory_hostname }}"
+              - "User: {{ ansible_user }}"
+
+  tasks:
+    - name: Ensure secrets directory exists locally
+      ansible.builtin.file:
+        path: "{{ lookup('env', 'PWD') }}/secrets"
+        state: directory
+      delegate_to: localhost
+      become: no
+
+    - name: Run bootstrap script
+      ansible.builtin.script: scripts/bootstrap.sh
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: bootstrap_result
+
+    - name: Display bootstrap output
+      ansible.builtin.debug:
+        var: bootstrap_result.stdout_lines
+      when: bootstrap_result.stdout_lines is defined
+
+    - name: Run install_incus script
+      ansible.builtin.script: scripts/install_incus.sh
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: install_result
+
+    - name: Display install output
+      ansible.builtin.debug:
+        var: install_result.stdout_lines
+      when: install_result.stdout_lines is defined
+
+    - name: Run configure_incus script
+      ansible.builtin.script: scripts/configure_incus.sh
+      environment:
+        TOKEN_FILE: "{{ remote_token_path }}"
+      register: configure_result
+
+    - name: Display configure output
+      ansible.builtin.debug:
+        var: configure_result.stdout_lines
+      when: configure_result.stdout_lines is defined
+
+    - name: Verify token file was created
+      ansible.builtin.stat:
+        path: "{{ remote_token_path }}"
+      register: token_file_stat
+
+    - name: Fail if token file not created
+      ansible.builtin.fail:
+        msg: "Token file was not created at {{ remote_token_path }}"
+      when: not token_file_stat.stat.exists or token_file_stat.stat.size == 0
+
+    - name: Fetch the generated client token
+      ansible.builtin.fetch:
+        src: "{{ remote_token_path }}"
+        dest: "{{ local_token_path }}"
+        flat: yes
+      become: no
+
+    - name: Verify local token file
+      ansible.builtin.stat:
+        path: "{{ local_token_path }}"
+      delegate_to: localhost
+      register: local_token_stat
+      become: no
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg:
+          - "✅ Incus server provisioning completed successfully!"
+          - "Server IP: {{ inventory_hostname }}"
+          - "Token saved to: {{ local_token_path }}"
+          - "Token size: {{ local_token_stat.stat.size }} bytes"
+          - ""
+          - "Next steps:"
+          - "  1. Run: just setup-remote-client"
+          - "  2. Test with: incus info"

@@ -3,14 +3,15 @@ set -euo pipefail
 
 echo "=== Installing Incus ==="
 
-# Check if running on Debian 12
+# Check if running on supported Debian version
 if command -v lsb_release &> /dev/null; then
     DISTRO=$(lsb_release -si)
     VERSION=$(lsb_release -sr)
-    if [[ "$DISTRO" == "Debian" && "$VERSION" == 12* ]]; then
-        echo "Debian 12 detected."
+    MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
+    if [[ "$DISTRO" == "Debian" && "$MAJOR_VERSION" -ge 12 ]]; then
+        echo "Debian $VERSION detected (supported)."
     else
-        echo "This script requires Debian 12."
+        echo "This script requires Debian 12 or later. Detected: $DISTRO $VERSION"
         exit 1
     fi
 else

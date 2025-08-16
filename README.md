@@ -48,7 +48,8 @@ Windows Host
     cargo install just
     ```
 
-## Quick Start
+## Quick Start (Vagrant - Local VM)
+
 
 1. **Clone this repository:**
    ```bash
@@ -75,6 +76,74 @@ Windows Host
    just test-connection
    ```
 
+## Quick Start (Ansible - Remote Server)
+
+This method provisions a remote, pre-existing Debian 12+ server using Ansible.
+
+### Prerequisites for Remote Server
+- Fresh Debian 12 or 13 installation
+- SSH access with sudo privileges
+- At least 10GB free disk space
+- SSH key authentication configured (recommended)
+
+### Setup Steps
+
+1. **Clone this repository:**
+   ```bash
+   git clone https://github.com/armarquez/infra.git
+   cd infra/incus/windows
+   ```
+
+2. **Configure Inventory:**
+   Edit `inventory.ini` and replace the placeholder with your server details:
+   ```ini
+   # Replace this line:
+   your_server_ip ansible_user=your_user
+   
+   # With your actual server details, for example:
+   192.168.1.100 ansible_user=debian
+   # or with SSH key:
+   192.168.1.100 ansible_user=debian ansible_ssh_private_key_file=~/.ssh/id_ed25519
+   ```
+
+3. **Test connectivity (optional but recommended):**
+   ```bash
+   just test-remote-connection
+   ```
+
+4. **Complete setup (recommended - runs all steps):**
+   ```bash
+   just full-remote-setup
+   ```
+
+   **OR** run steps individually:
+
+   ```bash
+   # Step 4a: Provision the server
+   just provision-remote
+   
+   # Step 4b: Setup Incus client
+   just setup-remote-client
+   ```
+
+5. **Test the connection:**
+   ```bash
+   incus list
+   incus info
+   ```
+
+### Available Remote Commands
+
+| Command | Description |
+|---------|-------------|
+| `just check-inventory` | Verify inventory configuration |
+| `just test-remote-connection` | Test SSH connectivity to server |
+| `just provision-remote` | Run Ansible playbook to install Incus |
+| `just setup-remote-client` | Configure local client |
+| `just validate-remote-provision` | Verify Incus server is accessible |
+| `just full-remote-setup` | Complete end-to-end setup |
+| `just clean-remote-client` | Remove remote client configuration |
+
 ## File Structure
 
 ```
@@ -90,13 +159,13 @@ Windows Host
 
 ## VM Specifications
 
-- **OS:** Debian 12 (Bookworm)
-- **CPU:** 4 cores
-- **RAM:** 12 GB
+- **OS:** Debian 12+ (Bookworm/Trixie) - supports both Debian 12 and 13
+- **CPU:** 4 cores (local VM) / varies (remote server)
+- **RAM:** 12 GB (local VM) / minimum 4GB recommended (remote server)
 - **Network:** 
-  - Private network: 192.168.56.10
-  - Port forwarding: SSH (2222), Incus API (8443)
-- **Storage:** 50GB Btrfs pool for containers/VMs
+  - Local VM: Private network: 192.168.56.10, Port forwarding: SSH (2222), Incus API (8443)
+  - Remote server: Direct IP access via SSH and Incus API (8443)
+- **Storage:** 50GB Btrfs pool for containers/VMs (minimum 10GB required)
 
 ## Available Commands (Just)
 
@@ -216,6 +285,58 @@ incus info
 
 # View system logs
 just logs
+```
+
+### Remote Server Provisioning Issues
+
+**SSH Connection Failed:**
+```bash
+# Test SSH connectivity
+just test-remote-connection
+
+# Debug SSH issues
+ssh -vvv user@server_ip
+
+# Check inventory configuration
+just check-inventory
+```
+
+**Ansible Playbook Fails:**
+```bash
+# Check prerequisites on remote server
+ansible incus_server -m shell -a "df -h"
+ansible incus_server -m shell -a "python3 --version"
+
+# Run playbook with verbose output
+ansible-playbook playbook.yml -vvv
+
+# Check if server meets requirements
+ansible incus_server -m shell -a "free -h && df -h"
+```
+
+**Token File Not Generated:**
+```bash
+# Check token file exists
+ls -la secrets/
+
+# Validate remote provisioning
+just validate-remote-provision
+
+# Re-run configure script manually
+ansible incus_server -m shell -a "sudo /tmp/configure_incus.sh"
+```
+
+**Client Setup Issues:**
+```bash
+# Clean existing configuration
+just clean-remote-client
+
+# Check API connectivity
+SERVER_IP=$(grep -v '#' inventory.ini | awk '{print $1}')
+timeout 5 bash -c "</dev/tcp/${SERVER_IP}/8443"
+
+# Re-setup client
+just setup-remote-client
 ```
 
 ### WSL Networking Issues

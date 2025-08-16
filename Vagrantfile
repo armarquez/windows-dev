@@ -20,26 +20,14 @@ Vagrant.configure("2") do |config|
     # Forward Incus API port (8443) for client connections
     config.vm.network "forwarded_port", guest: 8443, host: 8443, id: "incus-api"
 
-    # VirtualBox specific configuration
-    config.vm.provider "virtualbox" do |vb|
-      vb.name = "incus-server-vm"
-      vb.memory = "12288"  # 12 GB RAM
-      vb.cpus = 4          # 4 CPU cores
+    # Hyper-V specific configuration
+    config.vm.provider "hyperv" do |h|
+      h.vm_name = "incus-server-vm"
+      h.memory = 12288
+      h.cpus = 4
       
-      # Enable nested virtualization for running VMs inside the VM
-      vb.customize ["modifyvm", :id, "--nested-hw-virt", "on"]
-      
-      # Increase video memory for better performance
-      vb.customize ["modifyvm", :id, "--vram", "32"]
-      
-      # Enable IOAPIC for multi-core support
-      vb.customize ["modifyvm", :id, "--ioapic", "on"]
-      
-      # Enable PAE/NX for better memory management
-      vb.customize ["modifyvm", :id, "--pae", "on"]
-      
-      # Optimize for server workload
-      vb.customize ["modifyvm", :id, "--paravirtprovider", "kvm"]
+      # Enable nested virtualization for running KVM inside the VM
+      h.enable_virtualization_extensions = true
     end
 
     # SSH configuration
@@ -49,7 +37,11 @@ Vagrant.configure("2") do |config|
     # Provisioning scripts
     config.vm.provision "shell", path: "scripts/bootstrap.sh", privileged: true
     config.vm.provision "shell", path: "scripts/install_incus.sh", privileged: true
-    config.vm.provision "shell", path: "scripts/configure_incus.sh", privileged: false
+
+    # Reload the VM to apply group membership changes for the vagrant user
+    config.vm.provision "shell", inline: "echo 'Rebooting to apply group memberships...'", reboot: true
+
+    config.vm.provision "shell", path: "scripts/configure_incus.sh", privileged: true
     
     # Copy SSH keys for easier access
     config.vm.provision "file", source: "~/.ssh/id_ed25519.pub", destination: "/tmp/host_ssh_key.pub"
