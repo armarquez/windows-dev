@@ -1,0 +1,108 @@
+---
+- name: Secure SSH Configuration (Disable Password Authentication)
+  hosts: incus_server
+  become: yes
+  vars:
+    ssh_config_file: /etc/ssh/sshd_config
+    ssh_backup_file: /etc/ssh/sshd_config.backup-{{ ansible_date_time.epoch }}
+
+  pre_tasks:
+    - name: Test current SSH key authentication before making changes
+      ansible.builtin.command: whoami
+      register: pre_test_result
+      become: no
+
+    - name: Display pre-change information
+      ansible.builtin.debug:
+        msg:
+          - "🔒 Preparing to secure SSH configuration on {{ inventory_hostname }}"
+          - "Current connection test: {{ pre_test_result.stdout }}"
+          - "⚠️  This will disable SSH password authentication"
+          - "Backup will be saved to: {{ ssh_backup_file }}"
+
+  tasks:
+    - name: Create backup of current SSH configuration
+      ansible.builtin.copy:
+        src: "{{ ssh_config_file }}"
+        dest: "{{ ssh_backup_file }}"
+        remote_src: yes
+        backup: yes
+      register: ssh_backup
+
+    - name: Check current SSH configuration
+      ansible.builtin.slurp:
+        src: "{{ ssh_config_file }}"
+      register: current_ssh_config
+
+    - name: Show current relevant SSH settings
+      ansible.builtin.debug:
+        msg: "Current SSH config contains password auth settings"
+      when: "'PasswordAuthentication' in (current_ssh_config.content | b64decode)"
+
+    - name: Configure SSH security settings
+      ansible.builtin.lineinfile:
+        path: "{{ ssh_config_file }}"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: no
+      loop:
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
+        - { regexp: '^#?KbdInteractiveAuthentication', line: 'KbdInteractiveAuthentication no' }
+        - { regexp: '^#?UsePAM', line: 'UsePAM no' }
+        - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+        - { regexp: '^#?AuthorizedKeysFile', line: 'AuthorizedKeysFile .ssh/authorized_keys' }
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+      register: ssh_config_changes
+
+    - name: Validate SSH configuration syntax
+      ansible.builtin.command: sshd -t
+      register: sshd_test
+      changed_when: false
+
+    - name: Reload SSH service
+      ansible.builtin.systemd:
+        name: ssh
+        state: reloaded
+      when: ssh_config_changes.changed
+
+    - name: Wait for SSH service to be ready
+      ansible.builtin.wait_for:
+        port: 22
+        host: "{{ inventory_hostname }}"
+        delay: 2
+        timeout: 30
+      delegate_to: localhost
+      become: no
+
+    - name: Test SSH connection after changes
+      ansible.builtin.command: whoami
+      register: post_test_result
+      become: no
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg:
+          - "✅ SSH security hardening completed successfully!"
+          - "Server: {{ inventory_hostname }}"
+          - "Post-change connection test: {{ post_test_result.stdout }}"
+          - "Backup saved to: {{ ssh_backup_file }}"
+          - ""
+          - "🔒 Security changes applied:"
+          - "   - Password authentication disabled"
+          - "   - Challenge response authentication disabled"
+          - "   - Keyboard interactive authentication disabled"
+          - "   - PAM authentication disabled"
+          - "   - Root login disabled"
+          - "   - Empty passwords disabled"
+          - "   - Public key authentication enabled"
+          - ""
+          - "⚠️  IMPORTANT: Only SSH key authentication is now allowed!"
+
+  handlers:
+    - name: restart ssh
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted

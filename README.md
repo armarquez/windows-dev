@@ -11,7 +11,7 @@ Windows Host
 │   ├── Ansible playbooks
 │   └── Incus client commands
 └── VirtualBox VM (Incus Server)
-    ├── Debian 12 base
+    ├── Ubuntu 24.04 base
     ├── 4 CPU cores, 12GB RAM
     ├── Incus daemon
     └── Container/VM orchestration
@@ -53,17 +53,14 @@ Windows Host
 
 1. **Clone this repository:**
    ```bash
-   git clone https://github.com/armarquez/infra.git
-   cd infra/incus/windows
+   git clone https://github.com/armarquez/windows-dev.git
+   cd windows-dev
    ```
 
 2. **Create the VM (from Windows/WSL):**
    ```bash
    # Using Just (recommended)
    just up
-   
-   # Or using Vagrant directly
-   vagrant up
    ```
 
 3. **Setup Incus client (from WSL):**
@@ -90,8 +87,8 @@ This method provisions a remote, pre-existing Debian 12+ server using Ansible.
 
 1. **Clone this repository:**
    ```bash
-   git clone https://github.com/armarquez/infra.git
-   cd infra/incus/windows
+   git clone https://github.com/armarquez/windows-dev.git
+   cd windows-dev
    ```
 
 2. **Configure Inventory:**
@@ -159,7 +156,7 @@ This method provisions a remote, pre-existing Debian 12+ server using Ansible.
 
 ## VM Specifications
 
-- **OS:** Debian 12+ (Bookworm/Trixie) - supports both Debian 12 and 13
+- **OS:** Ubuntu 24.04 (upgraded from 22.04) for the local VM, and Debian 12+ for the remote server.
 - **CPU:** 4 cores (local VM) / varies (remote server)
 - **RAM:** 12 GB (local VM) / minimum 4GB recommended (remote server)
 - **Network:** 
@@ -381,9 +378,9 @@ incus profile edit ansible-target < profile-config.yml
 ## Integration with CI/CD
 
 This environment is perfect for:
-- **Ansible Development:** Test playbooks in clean containers
+- **Ansible Development:** Test playbooks in clean containers or VMs
 - **Infrastructure Testing:** Validate configurations
-- **Application Testing:** Multi-service testing with containers
+- **Application Testing:** Multi-service testing with containers or VMs
 - **Security Testing:** Isolated environments for testing
 
 ### Example GitHub Actions Integration
@@ -416,7 +413,3 @@ This environment is perfect for:
 2. Create a feature branch
 3. Test your changes with `just health-check`
 4. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details

@@ -1,17 +1,38 @@
 #!/bin/bash
 set -euo pipefail
 
+# Utility functions
+get_target_user() {
+    local target_user=""
+    
+    if id vagrant >/dev/null 2>&1; then
+        target_user="vagrant"
+    elif [ -n "${ANSIBLE_USER:-}" ]; then
+        target_user="$ANSIBLE_USER"
+    elif [ -n "$SUDO_USER" ]; then
+        target_user="$SUDO_USER"
+    else
+        # Fallback to the user who invoked sudo
+        target_user=$(who am i | awk '{print $1}' 2>/dev/null || echo "root")
+    fi
+    
+    echo "$target_user"
+}
+
 echo "=== Installing Incus ==="
 
-# Check if running on supported Debian version
+# Check if running on a supported distribution
 if command -v lsb_release &> /dev/null; then
     DISTRO=$(lsb_release -si)
     VERSION=$(lsb_release -sr)
     MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
+
     if [[ "$DISTRO" == "Debian" && "$MAJOR_VERSION" -ge 12 ]]; then
         echo "Debian $VERSION detected (supported)."
+    elif [[ "$DISTRO" == "Ubuntu" && "$MAJOR_VERSION" -ge 24 ]]; then
+        echo "Ubuntu $VERSION detected (supported)."
     else
-        echo "This script requires Debian 12 or later. Detected: $DISTRO $VERSION"
+        echo "This script requires Debian 12+ or Ubuntu 24.04+. Detected: $DISTRO $VERSION"
         exit 1
     fi
 else
@@ -61,12 +82,16 @@ apt-get install -y \
 echo "Waiting for Incus installation to complete..."
 sleep 15
 
-# Add vagrant user to incus group (created by snap)
-usermod -aG incus vagrant
+# Get the target user using utility function
+TARGET_USER=$(get_target_user)
 
-# Create incus-admin group and add vagrant user
+echo "Adding $TARGET_USER to incus groups..."
+# Add user to incus group
+usermod -aG incus $TARGET_USER
+
+# Create incus-admin group and add user
 groupadd -f incus-admin
-usermod -aG incus-admin vagrant
+usermod -aG incus-admin $TARGET_USER
 
 # Verify installation
 echo "Verifying Incus installation..."
@@ -78,3 +103,4 @@ else
 fi
 
 echo "=== Incus installation completed ==="
+

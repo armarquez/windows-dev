@@ -21,7 +21,7 @@ if ! incus remote list | grep -q "${REMOTE_NAME}"; then
     if [ -f "${TOKEN_FILE}" ]; then
         TOKEN=$(cat ${TOKEN_FILE});
         echo "Token: ${TOKEN}"
-        echo "y" | incus remote add ${REMOTE_NAME} ${VM_IP} --token ${TOKEN} --accept-certificate;
+        incus remote add ${REMOTE_NAME} ${TOKEN} --accept-certificate;
     else
         echo "Error: Token file not found at ${TOKEN_FILE}";
         exit 1;

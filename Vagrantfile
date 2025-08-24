@@ -2,10 +2,10 @@
 # vi: set ft=ruby :
 
 Vagrant.configure("2") do |config|
+  config.vm.boot_timeout = 600
   config.vm.define "incus-server-vm" do |node|
-    # Use Debian 12 (Bookworm) as the base box
-    config.vm.box = "debian/bookworm64"
-    config.vm.box_version = ">= 12.0.0"
+    # Use Ubuntu 22.04 (Jammy Jellyfish) as the base box
+    config.vm.box = "ubuntu/jammy64" 
 
     # Configure the VM hostname
     config.vm.hostname = "incus-server"
@@ -20,14 +20,14 @@ Vagrant.configure("2") do |config|
     # Forward Incus API port (8443) for client connections
     config.vm.network "forwarded_port", guest: 8443, host: 8443, id: "incus-api"
 
-    # Hyper-V specific configuration
-    config.vm.provider "hyperv" do |h|
-      h.vm_name = "incus-server-vm"
-      h.memory = 12288
-      h.cpus = 4
+    # VirtualBox specific configuration
+    config.vm.provider "virtualbox" do |vb|
+      vb.name = "incus-server-vm"
+      vb.memory = 12288
+      vb.cpus = 4
       
       # Enable nested virtualization for running KVM inside the VM
-      h.enable_virtualization_extensions = true
+      vb.customize ["modifyvm", :id, "--nested-hw-virt", "on"]
     end
 
     # SSH configuration
@@ -36,11 +36,9 @@ Vagrant.configure("2") do |config|
     
     # Provisioning scripts
     config.vm.provision "shell", path: "scripts/bootstrap.sh", privileged: true
+    config.vm.provision "shell", path: "scripts/upgrade_release.sh", privileged: true
     config.vm.provision "shell", path: "scripts/install_incus.sh", privileged: true
-
-    # Reload the VM to apply group membership changes for the vagrant user
     config.vm.provision "shell", inline: "echo 'Rebooting to apply group memberships...'", reboot: true
-
     config.vm.provision "shell", path: "scripts/configure_incus.sh", privileged: true
     
     # Copy SSH keys for easier access

@@ -1,6 +1,46 @@
 #!/bin/bash
 set -euo pipefail
 
+# Utility functions
+get_target_user() {
+    local target_user=""
+    
+    if id vagrant >/dev/null 2>&1; then
+        target_user="vagrant"
+    elif [ -n "${ANSIBLE_USER:-}" ]; then
+        target_user="$ANSIBLE_USER"
+    elif [ -n "$SUDO_USER" ]; then
+        target_user="$SUDO_USER"
+    else
+        # Fallback to the user who invoked sudo
+        target_user=$(who am i | awk '{print $1}' 2>/dev/null || echo "root")
+    fi
+    
+    echo "$target_user"
+}
+
+get_target_user_home() {
+    local target_user="${1:-$(get_target_user)}"
+    
+    if [ "$target_user" = "root" ]; then
+        echo "/root"
+    else
+        echo "/home/$target_user"
+    fi
+}
+
+get_token_file_path() {
+    local target_user="${1:-$(get_target_user)}"
+    local default_filename="${2:-incus-server-wsl-client.token}"
+    
+    # For Vagrant VMs, use /vagrant/secrets, for remote servers use user's home directory
+    if [ -d "/vagrant/secrets" ]; then
+        echo "/vagrant/secrets/$default_filename"
+    else
+        echo "$(get_target_user_home "$target_user")/$default_filename"
+    fi
+}
+
 echo "=== Configuring Incus Server ==="
 
 # Wait for Incus daemon and handle first-time setup
@@ -131,9 +171,13 @@ incus image copy images:ubuntu/22.04 local: --alias ubuntu2204 &
 # Wait for image downloads (run in background)
 wait
 
+# Get the target user using utility function
+TARGET_USER=$(get_target_user)
+TARGET_USER_HOME=$(get_target_user_home "$TARGET_USER")
+
 # Create client certificate directory
-echo "Setting up client certificates..."
-mkdir -p /home/vagrant/.config/incus
+echo "Setting up client certificates for user: $TARGET_USER"
+mkdir -p "$TARGET_USER_HOME/.config/incus"
 
 # Generate and save client certificate token
 echo "Generating WSL client certificate..."
@@ -144,7 +188,7 @@ echo "Debug: Raw token output:"
 echo "$TOKEN_OUTPUT"
 
 # Set default token file path (can be overridden by environment variable)
-TOKEN_FILE="${TOKEN_FILE:-/vagrant/secrets/incus-server-wsl-client.token}"
+TOKEN_FILE="${TOKEN_FILE:-$(get_token_file_path "$TARGET_USER")}"
 
 # Create secrets directory if it doesn't exist
 mkdir -p "$(dirname "$TOKEN_FILE")"
@@ -198,4 +242,4 @@ echo "  - Server IP: 192.168.56.10"
 echo "  - API Port: 8443"
 echo ""
 echo "To connect from WSL, run:"
-echo "  incus remote add incus-vm <SERVER_IP> --token $(cat $TOKEN_FILE)"
+echo "  incus remote add incus-vm 192.168.56.10 --token $(cat $TOKEN_FILE)"

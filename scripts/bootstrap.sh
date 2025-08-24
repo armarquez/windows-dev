@@ -1,19 +1,54 @@
 #!/bin/bash
 set -euo pipefail
 
+# Utility functions
+get_target_user() {
+    local target_user=""
+    
+    if id vagrant >/dev/null 2>&1; then
+        target_user="vagrant"
+    elif [ -n "${ANSIBLE_USER:-}" ]; then
+        target_user="$ANSIBLE_USER"
+    elif [ -n "$SUDO_USER" ]; then
+        target_user="$SUDO_USER"
+    else
+        # Fallback to the user who invoked sudo
+        target_user=$(who am i | awk '{print $1}' 2>/dev/null || echo "root")
+    fi
+    
+    echo "$target_user"
+}
+
 echo "=== Starting system bootstrap ==="
 
-# Update package lists
-echo "Updating package lists..."
-apt update
+# Check if the OS is Ubuntu
+if [[ "$(lsb_release -is)" == "Ubuntu" ]]; then
+  echo "Ubuntu detected, performing package upgrade..."
+  
+  # Set non-interactive frontend
+  export DEBIAN_FRONTEND=noninteractive
+  
+  # Update package lists
+  echo "Updating package lists..."
+  apt-get update
+  
+  # Upgrade all packages
+  echo "Upgrading all packages..."
+  apt-get dist-upgrade -y
 
-# Install essential packages
+  
+else
+  # Update package lists for other OS (Debian)
+  echo "Updating package lists..."
+  apt update
+fi
+
+# Install essential packages (common to both Ubuntu and Debian)
 echo "Installing essential packages..."
 apt install -y \
     curl \
     wget \
     gnupg2 \
-    software-properties-common \
     apt-transport-https \
     ca-certificates \
     lsb-release \
@@ -24,6 +59,12 @@ apt install -y \
     ebtables \
     dnsmasq-base \
     zstd
+
+# Install OS-specific packages
+if [[ "$(lsb_release -is)" == "Ubuntu" ]]; then
+    echo "Installing Ubuntu-specific packages..."
+    apt install -y software-properties-common
+fi
 
 # Install KVM and other virtualization packages
 echo "Installing KVM and other virtualization packages..."
@@ -50,7 +91,12 @@ echo "Installing Ansible..."
 apt install -y ansible
 
 # Install kernel headers
-apt install -y linux-headers-amd64
+echo "Installing kernel headers..."
+if [[ "$(lsb_release -is)" == "Debian" ]]; then
+    apt-get install -y linux-headers-amd64
+else
+    apt-get install -y "linux-headers-$(uname -r)"
+fi
 
 # Configure kernel modules for containerization
 echo "Configuring kernel modules..."
@@ -105,15 +151,17 @@ EOF
 # Apply sysctl changes
 sysctl --system
 
-# Configure subuid and subgid for unprivileged containers
-echo "Configuring subuid/subgid..."
-echo "vagrant:1000000:1000000000" >> /etc/subuid
-echo "vagrant:1000000:1000000000" >> /etc/subgid
+# Get the target user using utility function
+TARGET_USER=$(get_target_user)
 
-# Add vagrant user to necessary groups
-usermod -aG sudo vagrant
-usermod -aG libvirt vagrant
-usermod -aG kvm vagrant
+echo "Configuring subuid/subgid for user: $TARGET_USER"
+echo "$TARGET_USER:1000000:1000000000" >> /etc/subuid
+echo "$TARGET_USER:1000000:1000000000" >> /etc/subgid
+
+# Add user to necessary groups
+usermod -aG sudo $TARGET_USER
+usermod -aG libvirt $TARGET_USER
+usermod -aG kvm $TARGET_USER
 
 # Configure systemd for containers
 echo "Configuring systemd..."

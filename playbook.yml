@@ -46,6 +46,7 @@
       ansible.builtin.script: scripts/bootstrap.sh
       environment:
         DEBIAN_FRONTEND: noninteractive
+        ANSIBLE_USER: "{{ ansible_user }}"
       register: bootstrap_result
 
     - name: Display bootstrap output
@@ -57,6 +58,7 @@
       ansible.builtin.script: scripts/install_incus.sh
       environment:
         DEBIAN_FRONTEND: noninteractive
+        ANSIBLE_USER: "{{ ansible_user }}"
       register: install_result
 
     - name: Display install output
@@ -68,6 +70,7 @@
       ansible.builtin.script: scripts/configure_incus.sh
       environment:
         TOKEN_FILE: "{{ remote_token_path }}"
+        ANSIBLE_USER: "{{ ansible_user }}"
       register: configure_result
 
     - name: Display configure output

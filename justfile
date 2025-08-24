@@ -24,7 +24,7 @@ check-secrets:
 # Create and provision the Incus server VM
 up: check-secrets
     @echo "🚀 Creating and provisioning Incus server VM..."
-    {{VAGRANT}} up
+    {{VAGRANT}} up --provision
     @echo "✅ Incus server VM is ready! You can now setup the Incus client."
 
 # Destroy the Incus server VM
@@ -42,6 +42,8 @@ halt:
 restart:
     @echo "🔄 Restarting Incus server VM..."
     {{VAGRANT}} reload
+
+
 
 # SSH into the Incus server VM
 ssh:
@@ -94,8 +96,7 @@ reset-client clean_token="false":
 
 
 # Test the connection from WSL client
-
-just test-connection:
+test-connection:
     @echo "🧪 Testing Incus client connection..."
     @echo "Server info:"
     incus info
@@ -111,7 +112,7 @@ just test-connection:
 # Provision a remote server using Ansible
 provision-remote:
     @echo "🚀 Provisioning remote server with Ansible..."
-    ansible-playbook playbook.yml
+    ansible-playbook playbook.yml --ask-become-pass
 
 # Setup Incus client for a provisioned remote server
 setup-remote-client:
@@ -241,7 +242,7 @@ check-inventory:
     fi
     @echo "✅ Inventory appears to be configured"
     @echo "📋 Current inventory:"
-    @grep -v '^#' inventory.ini | grep -v '^$' | head -5
+    @grep -v '^#' inventory.ini | grep -v '^ ' | head -5
 
 # Test connection to remote server
 test-remote-connection:
@@ -265,10 +266,10 @@ validate-remote-provision:
     @echo "✅ Token file exists ($(stat -c%s {{TOKEN_FILE}} 2>/dev/null || echo "unknown") bytes)"
     @echo "🔧 Testing remote Incus server..."
     @SERVER_IP=$(ansible-inventory --list | jq -r '.incus_server.hosts[0]' 2>/dev/null || grep -v '#' inventory.ini | awk 'NF {print $1; exit}'); \
-    if timeout 5 bash -c "</dev/tcp/$${SERVER_IP}/8443" >/dev/null 2>&1; then \
-        echo "✅ Incus API is accessible on $${SERVER_IP}:8443"; \
+    if timeout 5 bash -c "</dev/tcp/${SERVER_IP}/8443" >/dev/null 2>&1; then \
+        echo "✅ Incus API is accessible on ${SERVER_IP}:8443"; \
     else \
-        echo "❌ Cannot reach Incus API on $${SERVER_IP}:8443"; \
+        echo "❌ Cannot reach Incus API on ${SERVER_IP}:8443"; \
     fi
 
 # Complete remote setup workflow
@@ -298,4 +299,119 @@ clean-remote-client:
         echo "✅ Remote 'incus-remote' removed."; \
     else \
         echo "ℹ️ Remote 'incus-remote' not found."; \
+    fi
+
+# --- SSH Key Management ---
+
+# Generate SSH key pair for remote server access
+generate-ssh-key:
+    @echo "🔑 Generating SSH key pair for remote server access..."
+    @mkdir -p ~/.ssh
+    @if [ ! -f ~/.ssh/incus_server_key ]; then \
+        ssh-keygen -t ed25519 -f ~/.ssh/incus_server_key -N "" -C "incus-server-$(date +%Y%m%d)"; \
+        chmod 600 ~/.ssh/incus_server_key; \
+        chmod 644 ~/.ssh/incus_server_key.pub; \
+        echo "✅ SSH key pair generated:"; \
+        echo "   Private key: ~/.ssh/incus_server_key"; \
+        echo "   Public key:  ~/.ssh/incus_server_key.pub"; \
+    else \
+        echo "ℹ️ SSH key already exists at ~/.ssh/incus_server_key"; \
+    fi
+
+# Setup SSH key authentication for remote server
+setup-ssh-keys: generate-ssh-key check-inventory
+    @echo "🔐 Setting up SSH key authentication for remote server..."
+    @echo "📋 This will:"
+    @echo "   1. Deploy your SSH public key to the remote server"
+    @echo "   2. Test the key-based connection"
+    @echo "   3. Update inventory to use key authentication"
+    @echo ""
+    @read -p "Continue? (y/N): " confirm; \
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then \
+        ansible-playbook playbooks/setup-ssh-keys.yml --ask-become-pass; \
+        echo ""; \
+        echo "✅ SSH key deployment completed!"; \
+        echo "🔧 Updating inventory configuration..."; \
+        just update-inventory-for-keys; \
+        echo ""; \
+        echo "🧪 Testing new SSH key connection..."; \
+        if just test-ssh-key-connection; then \
+            echo "✅ SSH key authentication working!"; \
+            echo ""; \
+            echo "💡 Next step: Run 'just secure-ssh' to disable password authentication"; \
+        else \
+            echo "❌ SSH key authentication failed"; \
+            echo "   Please check the setup and try again"; \
+        fi; \
+    else \
+        echo "❌ Setup cancelled"; \
+    fi
+
+# Test SSH key connection to remote server
+test-ssh-key-connection:
+    @echo "🔗 Testing SSH key connection to remote server..."
+    @ansible incus_server -m ping -e ansible_ssh_private_key_file=~/.ssh/incus_server_key
+
+# Update inventory.ini to use SSH key authentication
+update-inventory-for-keys:
+    @echo "📝 Updating inventory.ini for SSH key authentication..."
+    @if grep -q "ansible_ssh_pass" inventory.ini; then \
+        SERVER_IP=$(grep -v '^#' inventory.ini | grep -v '^$' | awk 'NF {print $1; exit}'); \
+        USER_NAME=$(grep -v '^#' inventory.ini | grep -v '^$' | grep ansible_user | sed 's/.*ansible_user=\([^ ]*\).*/\1/'); \
+        if [ -n "$SERVER_IP" ] && [ -n "$USER_NAME" ]; then \
+            sed -i.bak "s/.*ansible_ssh_pass.*/$SERVER_IP ansible_user=$USER_NAME ansible_ssh_private_key_file=~\/.ssh\/incus_server_key/" inventory.ini; \
+            echo "✅ Updated inventory.ini to use SSH key authentication"; \
+            echo "   Backup saved as inventory.ini.bak"; \
+        else \
+            echo "❌ Could not parse server details from inventory.ini"; \
+        fi; \
+    else \
+        echo "ℹ️ inventory.ini already configured for key authentication or no password auth found"; \
+    fi
+
+# Secure SSH configuration (disable password authentication)
+secure-ssh: test-ssh-key-connection
+    @echo "🔒 Securing SSH configuration on remote server..."
+    @echo "⚠️  WARNING: This will disable SSH password authentication!"
+    @echo "   Make sure SSH key authentication is working first."
+    @echo ""
+    @read -p "Disable password authentication? (y/N): " confirm; \
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then \
+        ansible-playbook playbooks/secure-ssh.yml; \
+        echo ""; \
+        echo "🧪 Testing secure connection..."; \
+        if just test-ssh-key-connection; then \
+            echo "✅ SSH security hardening completed successfully!"; \
+            echo "   Password authentication is now disabled"; \
+        else \
+            echo "❌ Connection test failed after hardening"; \
+            echo "   You may need to restore SSH configuration manually"; \
+        fi; \
+    else \
+        echo "❌ SSH hardening cancelled"; \
+    fi
+
+# Complete SSH key migration workflow
+migrate-to-ssh-keys: setup-ssh-keys secure-ssh
+    @echo "🎉 SSH key migration completed!"
+    @echo ""
+    @echo "✅ Summary:"
+    @echo "   - SSH key pair generated"
+    @echo "   - Public key deployed to remote server"
+    @echo "   - Inventory updated for key authentication"
+    @echo "   - Password authentication disabled"
+    @echo ""
+    @echo "💡 Your remote server is now secured with SSH key authentication"
+
+# Show SSH key information
+show-ssh-key-info:
+    @echo "🔍 SSH Key Information:"
+    @if [ ! -f ~/.ssh/incus_server_key ]; then \
+        echo "✅ Private key: ~/.ssh/incus_server_key"; \
+        echo "✅ Public key:  ~/.ssh/incus_server_key.pub"; \
+        echo ""; \
+        echo "📋 Public key content:"; \
+        cat ~/.ssh/incus_server_key.pub; \
+    else \
+        echo "❌ SSH key not found. Run 'just generate-ssh-key' first"; \
     fi
